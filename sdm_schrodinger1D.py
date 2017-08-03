@@ -18,7 +18,7 @@ class SDMSchrodinger1D:
             X_gridDIM - specifying the grid size
             X_amplitude - maximum value of the coordinates
             V - potential energy (as a string to be evaluated by numexpr)
-            Y - tracking target
+            Y (optional) - tracking target
             diff_V -- the derivative of the potential energy for the Ehrenfest theorem calculations
             t (optional) - initial value of time
             abs_boundary (optional) -- absorbing boundary (as a string to be evaluated by numexpr)
@@ -63,8 +63,14 @@ class SDMSchrodinger1D:
 
         try:
             self.Y
+            self.diff_diff_Y = np.gradient(
+                np.gradient(self.Y, self.dt, edge_order=2),
+                self.dt,
+                edge_order=2
+            )
         except AttributeError:
-            raise AttributeError("The tracking objective (Y) was not specified")
+            print("Warning: The tracking objective (Y) was not specified")
+
 
         try:
             self.t
@@ -171,6 +177,14 @@ class SDMSchrodinger1D:
             # Take the laser field at mid point (to have a cubic accuracy propagator)
             self.laser_field = 0.5 * (self.E[-1] + self.E[-2])
 
+            # # calculate the Ehrenfest theorems
+            # self.get_Ehrenfest()
+            #
+            # self.E.append(
+            #     self.diff_diff_Y[len(self.E) - 1] + self.diff_V_average[-1]
+            # )
+            # self.laser_field = 0.5 * (self.E[-1] + self.E[-2])
+
             # Calculate the exponent of the total potential energy
             ne.evaluate("exp(0.5j * dt * X * laser_field)", local_dict=self.__dict__, out=self.expVTotal)
             self.expVTotal *= self.expV
@@ -193,6 +207,52 @@ class SDMSchrodinger1D:
 
             # increment time
             self.t += self.dt
+
+        return self.wavefunction
+
+    def propagate_TL(self, time_steps=1):
+        """
+        Propagate the wave function saved in self.wavefunction using the transform limited (TL) pulse
+        :param time_steps: number of self.dt time increments to make
+        :return: self.wavefunction
+        """
+        try:
+            self.TL_laser_filed
+        except AttributeError:
+            raise AttributeError("Transform limited laser field (TL_laser_filed) has not been specified.")
+
+        exp_TL_laser_field = "exp(0.5j * dt * X * %s)" % self.TL_laser_filed
+
+        for _ in range(time_steps):
+            # save laser field to calculate the Ehrenfest theorems
+            self.E = [ne.evaluate(self.TL_laser_filed, local_dict=self.__dict__)]
+
+            # verify the Ehrenfest theorems
+            self.get_Ehrenfest()
+
+            # increment half a time step
+            self.t += 0.5 * self.dt
+
+            # Calculate the exponent of the total potential energy
+            ne.evaluate(exp_TL_laser_field, local_dict=self.__dict__, out=self.expVTotal)
+            self.expVTotal *= self.expV
+
+            # Propagate
+            self.wavefunction *= self.expVTotal
+
+            # going to the momentum representation
+            self.wavefunction = fftpack.fft(self.wavefunction, overwrite_x=True)
+            self.wavefunction *= self.expK
+
+            # going back to the coordinate representation
+            self.wavefunction = fftpack.ifft(self.wavefunction, overwrite_x=True)
+            self.wavefunction *= self.expVTotal
+
+            # normalize
+            self.wavefunction /= linalg.norm(self.wavefunction) * np.sqrt(self.dX)
+
+            # increment half a time step
+            self.t += 0.5 * self.dt
 
         return self.wavefunction
 
@@ -244,7 +304,6 @@ class SDMSchrodinger1D:
         self.hamiltonian_average[-1] += \
             ne.evaluate("sum(density * _K)", local_dict=self.__dict__)
 
-
     def set_wavefunction(self, wavefunc):
         """
         Set the initial wave function
@@ -270,6 +329,36 @@ class SDMSchrodinger1D:
 
         # normalize
         self.wavefunction /= linalg.norm(self.wavefunction) * np.sqrt(self.dX)
+
+        return self
+
+    def set_groundstate(self, nsteps=1000):
+        """
+        Set the initial condition to be a ground state calculated via the imaginary time propagation
+        :param nsteps: number of imaginary time steps to be taken
+        :return: self
+        """
+        self.set_wavefunction("exp(-X ** 2)")
+
+        # Pre-calculate the exponential of the potential without the laser field
+        ImgTExpV = ne.evaluate("(-1) ** k * exp(-0.5 * dt * (%s))" % self.V, local_dict=self.__dict__)
+
+        ImgTExpK = np.exp(-0.5 * self.dt * self.P ** 2)
+
+        # Imaginary time propagation
+        for _ in range(nsteps):
+            self.wavefunction *= ImgTExpV
+
+            # going to the momentum representation
+            self.wavefunction = fftpack.fft(self.wavefunction, overwrite_x=True)
+            self.wavefunction *= ImgTExpK
+
+            # going back to the coordinate representation
+            self.wavefunction = fftpack.ifft(self.wavefunction, overwrite_x=True)
+            self.wavefunction *= ImgTExpV
+
+            # normalize
+            self.wavefunction /= linalg.norm(self.wavefunction) * np.sqrt(self.dX)
 
         return self
 

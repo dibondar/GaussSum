@@ -12,6 +12,7 @@ class YGaussSum:
         The following parameters must be specified
             dt -- time step
             omega0 -- the carrier frequency
+            t_final -- time = [0, t_final]
 
             M, L -- (positive integers) needed to calculate the Gaussian sum
             N -- the integer to be factorized
@@ -33,6 +34,11 @@ class YGaussSum:
             raise AttributeError("Time-step (dt) was not specified")
 
         try:
+            self.t_final
+        except AttributeError:
+            raise AttributeError("Final time point (t_final) was not specified")
+
+        try:
             self.omega0
         except AttributeError:
             raise AttributeError("Carrier frequency (omega0) was not specified")
@@ -48,9 +54,7 @@ class YGaussSum:
             raise AttributeError("Positive integer (L) was not specified")
 
         # initialize the time axis
-        # use 4 periods
-        T_max = 2. * 2. * np.pi / self.omega0
-        self.t = np.arange(-T_max, T_max, self.dt)
+        self.t = np.arange(0, self.t_final, self.dt)
 
     def get_gauss_sum(self):
         """
@@ -81,7 +85,7 @@ class YGaussSum:
         t = self.t[:, np.newaxis]
 
         result = ne.evaluate("sum(A * exp(-1j * l * omega0 * t), axis=1)", global_dict=self.__dict__)
-        return result.real * np.cos(0.5 * np.pi * self.t / self.t.min()) ** 2
+        return result.real
 
 if __name__ == '__main__':
 
@@ -91,6 +95,7 @@ if __name__ == '__main__':
     hhg_gauss_gauss = YGaussSum(
         dt=0.1,
         omega0=0.1,
+        t_final=4 * 2. * np.pi / 0.1,
         L=10,
         M=5,
         N=7*2,
@@ -108,11 +113,12 @@ if __name__ == '__main__':
     plt.title("Fourier transform of $Y(t)$")
 
     ################## Calculate the Fourier transform ##################
+
     k = np.arange(Y.size)
     minus_one = (-1) ** k
     FT_Y = minus_one * np.fft.fft(minus_one * Y)
     FT_Y *= np.exp(-1j * np.pi * Y.size / 2)
-    omega = (k - k.size / 2.) * np.pi / abs(hhg_gauss_gauss.t.min())
+    omega = (k - k.size / 2.) * np.pi / (0.5 * hhg_gauss_gauss.t.max())
     #####################################################################
 
     plt.plot(omega / hhg_gauss_gauss.omega0, FT_Y.real / FT_Y.real.max(), '*-', label="$FT(Y(t))$")
