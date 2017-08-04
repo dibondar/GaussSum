@@ -245,6 +245,25 @@ plt.xlabel('time $t$ (a.u.)')
 
 plt.show()
 
+##################################################################################################
+#
+#   Propagate with smoothen the field
+#
+##################################################################################################
+
+smooth_field = iFT(
+    FT(tracking.E) * np.exp(-(omega / 18) ** 12)
+)
+
+# initialize smooth propagator
+smooth_prop = SDMSchrodinger1D(field=smooth_field, **params)
+
+# set initial condition to be the ground state
+smooth_prop.set_groundstate()
+
+propagate_smooth = [
+    np.abs(smooth_prop.propagate_field(steps)) ** 2 for _ in range(iterations)
+]
 
 ##################################################################################################
 
@@ -255,11 +274,11 @@ FT_Y = np.abs(FT(tracking.Y)) ** 2
 #FT_Y /= FT_Y.max()
 plt.semilogy(omega, FT_Y, label='target')
 
-from scipy.ndimage.filters import gaussian_filter
-
 FT_E = np.abs(FT(tracking.E)) ** 2
 #FT_E /= FT_E.max()
 plt.semilogy(omega, FT_E, label='laser field')
+
+plt.semilogy(omega, np.abs(FT(smooth_field)) ** 2, label="smooth laser field")
 
 TL_field = ne.evaluate(params["TL_laser_filed"], local_dict=params, global_dict={'t' : times})
 plt.semilogy(omega, np.abs(FT(TL_field)) ** 2, label="Original field")
@@ -272,8 +291,22 @@ plt.xlim([0,30])
 plt.subplot(122)
 plt.title("Target and objective")
 
-plt.semilogy(omega, np.abs(FT(tracking.Y)) ** 2, label="Target")
-plt.semilogy(omega, np.abs(FT(tracking.X_average  * blackman(N))) ** 2, label="$\\langle X \\rangle$")
+plt.semilogy(
+    omega,
+    np.abs(FT(tracking.Y)) ** 2,
+    label="Target"
+)
+plt.semilogy(
+    omega,
+    np.abs(FT(tracking.X_average * blackman(N))) ** 2,
+    label="$\\langle X \\rangle$"
+)
+plt.semilogy(
+    omega,
+    np.abs(FT(smooth_prop.X_average * blackman(N))) ** 2,
+    label="smooth $\\langle X \\rangle$"
+)
+
 plt.xlim([0,30])
 plt.legend()
 plt.xlabel("$\omega / \omega_0$")
@@ -294,11 +327,7 @@ plt.title("Original vs Tracking fields")
 plt.plot(times, tracking.E, label="tracking field")
 plt.plot(times, TL_field, label="Original field")
 
-smooth_E = iFT(
-    FT(tracking.E) #* np.exp(-(omega / 10.) ** 10)
-)
-
-plt.plot(times, smooth_E, label='filtered field')
+plt.plot(times, smooth_field, label='filtered field')
 
 plt.xlabel("time ($t$)")
 plt.legend()
@@ -306,6 +335,8 @@ plt.legend()
 plt.show()
 
 ####################################################################################################
+
+plt.title("HHG")
 
 # spectra of the HHG
 spectra = np.abs(FT(TL_signal * blackman(N))) ** 2
@@ -322,6 +353,13 @@ plt.semilogy(
     #spectra / spectra.max(),
     spectra,
     label='Target'
+)
+
+spectra = np.abs(FT(smooth_prop.X_average * blackman(N))) ** 2
+plt.semilogy(
+    omega,
+    spectra,
+    label="smooth $\\langle X \\rangle$"
 )
 
 plt.legend()

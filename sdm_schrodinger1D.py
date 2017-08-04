@@ -63,11 +63,6 @@ class SDMSchrodinger1D:
 
         try:
             self.Y
-            self.diff_diff_Y = np.gradient(
-                np.gradient(self.Y, self.dt, edge_order=2),
-                self.dt,
-                edge_order=2
-            )
         except AttributeError:
             print("Warning: The tracking objective (Y) was not specified")
 
@@ -177,14 +172,6 @@ class SDMSchrodinger1D:
             # Take the laser field at mid point (to have a cubic accuracy propagator)
             self.laser_field = 0.5 * (self.E[-1] + self.E[-2])
 
-            # # calculate the Ehrenfest theorems
-            # self.get_Ehrenfest()
-            #
-            # self.E.append(
-            #     self.diff_diff_Y[len(self.E) - 1] + self.diff_V_average[-1]
-            # )
-            # self.laser_field = 0.5 * (self.E[-1] + self.E[-2])
-
             # Calculate the exponent of the total potential energy
             ne.evaluate("exp(0.5j * dt * X * laser_field)", local_dict=self.__dict__, out=self.expVTotal)
             self.expVTotal *= self.expV
@@ -256,6 +243,55 @@ class SDMSchrodinger1D:
 
         return self.wavefunction
 
+    def propagate_field(self, time_steps=1):
+        """
+        Propagate the wave function saved in self.wavefunction using the laser field saved in self.field
+        :param time_steps: number of self.dt time increments to make
+        :return: self.wavefunction
+        """
+        try:
+            self.field
+        except AttributeError:
+            raise AttributeError("Laser field (field) has not been specified.")
+
+        for _ in range(time_steps):
+
+            N = len(self.X_average)
+
+            # Take the laser field at mid point (to have a cubic accuracy propagator)
+            self.laser_field = (
+                self.field[N] if N == len(self.field) - 1 else 0.5 * (self.field[N] + self.field[N +1])
+            )
+
+            self.E = [self.laser_field]
+
+            # calculate the Ehrenfest theorems
+            self.get_Ehrenfest()
+
+            # Calculate the exponent of the total potential energy
+            ne.evaluate("exp(0.5j * dt * X * laser_field)", local_dict=self.__dict__, out=self.expVTotal)
+            self.expVTotal *= self.expV
+
+            # Propagate
+            self.wavefunction *= self.expVTotal
+
+            # going to the momentum representation
+            self.wavefunction = fftpack.fft(self.wavefunction, overwrite_x=True)
+            self.wavefunction *= self.expK
+
+            # going back to the coordinate representation
+            self.wavefunction = fftpack.ifft(self.wavefunction, overwrite_x=True)
+            self.wavefunction *= self.expVTotal
+
+            # normalize
+            # this line is equivalent to
+            # self.wavefunction /= np.sqrt(np.sum(np.abs(self.wavefunction)**2)*self.dX)
+            self.wavefunction /= linalg.norm(self.wavefunction) * np.sqrt(self.dX)
+
+            # increment time
+            self.t += self.dt
+
+        return self.wavefunction
 
     def get_Ehrenfest(self):
         """
