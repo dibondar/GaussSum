@@ -9,6 +9,18 @@ __doc__ = """
 HHG for integer factorization
 """
 
+def iFT(A):
+    """
+    Inverse Fourier transform
+    :param A:  1D numpy.array
+    :return:
+    """
+    A = np.array(A)
+    minus_one = (-1) ** np.arange(A.size)
+    result = np.fft.ifft(minus_one * A)
+    result *= minus_one
+    result *= np.exp(1j * np.pi * A.size / 2)
+    return result
 
 def FT(A):
     """
@@ -18,15 +30,18 @@ def FT(A):
     """
     A = np.array(A)
     minus_one = (-1) ** np.arange(A.size)
-    return minus_one * np.fft.fft(minus_one * A)
+    result = np.fft.fft(minus_one * A)
+    result *= minus_one
+    result *= np.exp(-1j * np.pi * A.size / 2)
+    return result
 
 params = dict(
     # integer to factorize
-    N=3 * 7,
+    N=7 * 17,
 
     # parameters of Gauss sum
-    M=10,
-    L=10,
+    M=5,
+    L=30,
 
     # carrier frequency
     omega0=0.06,
@@ -52,6 +67,10 @@ params = dict(
     dt=0.02,
 )
 
+# update dt such that it matches with t_final and iterations, i.e., t_final / dt equals an integer times iterations
+iterations = 400
+params['dt'] = params['t_final'] / (iterations * int(round(params['t_final'] / params['dt'] / iterations)))
+
 ########################################################################################################
 #
 #   Get HHG from the transform limited pulse
@@ -59,9 +78,7 @@ params = dict(
 ########################################################################################################
 
 qsys = SDMSchrodinger1D(**params).set_groundstate()
-# qsys.propagate_TL(int(round(qsys.t_final / qsys.dt)))
 
-iterations = 750
 steps = int(round(qsys.t_final / qsys.dt / iterations))
 
 # save the density for subsequent visualization
@@ -69,50 +86,53 @@ propagate_TL_density = [
     np.abs(qsys.propagate_TL(steps)) ** 2 for _ in range(iterations)
 ]
 
-
+########################################################################################################
+#
+#   Create a target as modulated HHG
+#
 ########################################################################################################
 
 # Plot the High Harmonic Generation spectrum
-N = len(qsys.P_average_RHS)
-k = np.arange(N)
+N = len(qsys.X_average_RHS)
+assert N == qsys.t_final / qsys.dt
 
 # frequency range in units of omega0
-omega = (k - N / 2) * np.pi / (0.5 * qsys.t) / qsys.omega0
+omega = (np.arange(N) - N / 2) * np.pi / (0.5 * qsys.t) / qsys.omega0
 
 # Construct the target as a modulated transform limited HHG
-TL_signal = blackman(N) * qsys.X_average
+# TL_signal = blackman(N) * qsys.X_average
+TL_signal = qsys.X_average
+
 ygs = YGaussSum(**params)
 
-#Y = fftconvolve(ygs() * blackman(N), TL_signal, mode='same') * blackman(N)
+Y = fftconvolve(TL_signal * blackman(N), ygs(N) * blackman(N), mode='same') * blackman(N)
+
 # normalization
-#Y *= np.linalg.norm(TL_signal, np.inf) / np.linalg.norm(Y, np.inf)
-Y = TL_signal
+Y *= np.linalg.norm(TL_signal, np.inf) / np.linalg.norm(Y, np.inf)
+
+########################################################################################################
 #
-# # spectra of the HHG
-# spectra = np.abs(FT(TL_signal)) ** 2
-# plt.semilogy(
-#     omega,
-#     #spectra / spectra.max(),
-#     spectra,
-#     label='Transformed Limited'
-# )
+#   Plot target
 #
-# spectra = np.abs(FT(Y)) ** 2
-# plt.semilogy(
-#     omega,
-#     #spectra / spectra.max(),
-#     spectra,
-#     label='Target'
-# )
+########################################################################################################
+
+f = FT(ygs(N))
+plt.plot(omega, f.real / f.real.max(), '*-', label="$FT(Y(t))$")
+gauss_sum = ygs.get_gauss_sum()
+plt.plot(np.arange(1, gauss_sum.size + 1), gauss_sum.real, '*', label="Gauss sum")
+
+plt.legend()
+
+plt.xlabel("$\omega / \omega_0$")
+plt.xlim([0, 40])
+
+plt.show()
+
+########################################################################################################
 #
-# plt.legend()
-# plt.ylabel('spectrum (arbitrary units)')
-# plt.xlabel('frequency / $\\omega0$')
-# plt.xlim([0, 45.])
-# #plt.ylim([1e-15, 1.])
+#   Perform tracking
 #
-#
-# plt.show()
+########################################################################################################
 
 # initialize tracking
 tracking = SDMSchrodinger1D(Y=Y, **params)
@@ -120,9 +140,13 @@ tracking = SDMSchrodinger1D(Y=Y, **params)
 # set initial condition to be the ground state
 tracking.set_groundstate()
 
+propagate_tracking = [
+    np.abs(tracking.propagate(steps)) ** 2 for _ in range(iterations)
+]
+
 ########################################################################################################
 #
-#   Propagate
+#   Plot
 #
 ########################################################################################################
 
@@ -145,7 +169,7 @@ plt.subplot(122)
 plt.title("Propagation during tracking")
 # display the propagator
 plt.imshow(
-    [np.abs(tracking.propagate(steps)) ** 2 for _ in range(iterations)],
+    propagate_tracking,
     origin='lower',
     norm=LogNorm(vmin=1e-12, vmax=0.1),
     aspect=0.4, # image aspect ratio
@@ -157,26 +181,6 @@ plt.ylabel('time $t$ (a.u.)')
 plt.colorbar()
 
 plt.show()
-
-# initial_state = np.abs(tracking.wavefunction) ** 2
-# final_state = np.abs(tracking.propagate(tracking.Y.size)) ** 2
-
-########################################################################################################
-#
-#   Plot
-#
-########################################################################################################
-#
-# plt.title("Initial and final states")
-#
-# plt.semilogy(tracking.X, initial_state, label="initial")
-# plt.semilogy(tracking.X, final_state, label="final")
-#
-# plt.xlabel("$x$ (a.u.)")
-# plt.ylabel("denisty")
-# plt.legend()
-#
-# plt.show()
 
 ##################################################################################################
 
@@ -251,6 +255,8 @@ FT_Y = np.abs(FT(tracking.Y)) ** 2
 #FT_Y /= FT_Y.max()
 plt.semilogy(omega, FT_Y, label='target')
 
+from scipy.ndimage.filters import gaussian_filter
+
 FT_E = np.abs(FT(tracking.E)) ** 2
 #FT_E /= FT_E.max()
 plt.semilogy(omega, FT_E, label='laser field')
@@ -267,7 +273,7 @@ plt.subplot(122)
 plt.title("Target and objective")
 
 plt.semilogy(omega, np.abs(FT(tracking.Y)) ** 2, label="Target")
-plt.semilogy(omega, np.abs(FT(blackman(N) * tracking.X_average)) ** 2, label="$\\langle X \\rangle$")
+plt.semilogy(omega, np.abs(FT(tracking.X_average  * blackman(N))) ** 2, label="$\\langle X \\rangle$")
 plt.xlim([0,30])
 plt.legend()
 plt.xlabel("$\omega / \omega_0$")
@@ -283,12 +289,45 @@ plt.plot(times, tracking.X_average, label="$\\langle X \\rangle$")
 plt.xlabel("time ($t$)")
 plt.legend()
 
-
 plt.subplot(122)
-plt.title("Original vs Tracking")
+plt.title("Original vs Tracking fields")
 plt.plot(times, tracking.E, label="tracking field")
 plt.plot(times, TL_field, label="Original field")
+
+smooth_E = iFT(
+    FT(tracking.E) #* np.exp(-(omega / 10.) ** 10)
+)
+
+plt.plot(times, smooth_E, label='filtered field')
+
 plt.xlabel("time ($t$)")
 plt.legend()
+
+plt.show()
+
+####################################################################################################
+
+# spectra of the HHG
+spectra = np.abs(FT(TL_signal * blackman(N))) ** 2
+plt.semilogy(
+    omega,
+    #spectra / spectra.max(),
+    spectra,
+    label='Transformed Limited'
+)
+
+spectra = np.abs(FT(Y * blackman(N))) ** 2
+plt.semilogy(
+    omega,
+    #spectra / spectra.max(),
+    spectra,
+    label='Target'
+)
+
+plt.legend()
+plt.ylabel('spectrum (arbitrary units)')
+plt.xlabel('frequency / $\\omega0$')
+plt.xlim([0, 45.])
+#plt.ylim([1e-15, 1.])
 
 plt.show()

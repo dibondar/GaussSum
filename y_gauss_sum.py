@@ -12,7 +12,6 @@ class YGaussSum:
         The following parameters must be specified
             dt -- time step
             omega0 -- the carrier frequency
-            t_final -- time = [0, t_final]
 
             M, L -- (positive integers) needed to calculate the Gaussian sum
             N -- the integer to be factorized
@@ -34,11 +33,6 @@ class YGaussSum:
             raise AttributeError("Time-step (dt) was not specified")
 
         try:
-            self.t_final
-        except AttributeError:
-            raise AttributeError("Final time point (t_final) was not specified")
-
-        try:
             self.omega0
         except AttributeError:
             raise AttributeError("Carrier frequency (omega0) was not specified")
@@ -52,9 +46,6 @@ class YGaussSum:
             self.L
         except AttributeError:
             raise AttributeError("Positive integer (L) was not specified")
-
-        # initialize the time axis
-        self.t = np.arange(0, self.t_final, self.dt)
 
     def get_gauss_sum(self):
         """
@@ -71,9 +62,10 @@ class YGaussSum:
         result = ne.evaluate("sum(exp(-2j * pi * m ** 2 * N / l) / (M + 1), axis=1)", global_dict=self.__dict__)
         return result
 
-    def __call__(self):
+    def __call__(self, size):
         """
         Calculate the tracking target Y(t)
+        :param size: length of self.t array
         :return:
         """
         A = self.get_gauss_sum()
@@ -82,6 +74,7 @@ class YGaussSum:
         l = np.arange(1, self.L + 1)
         l = l[np.newaxis, :]
 
+        self.t = self.dt * np.arange(size)
         t = self.t[:, np.newaxis]
 
         result = ne.evaluate("sum(A * exp(-1j * l * omega0 * t), axis=1)", global_dict=self.__dict__)
@@ -93,7 +86,7 @@ if __name__ == '__main__':
     import matplotlib.pyplot as plt
 
     hhg_gauss_gauss = YGaussSum(
-        dt=0.1,
+        dt=0.05,
         omega0=0.1,
         t_final=4 * 2. * np.pi / 0.1,
         L=10,
@@ -104,8 +97,7 @@ if __name__ == '__main__':
     plt.subplot(121)
     plt.title("Target $Y(t)$")
 
-    print("Numer of time points ", hhg_gauss_gauss.t.size)
-    Y = hhg_gauss_gauss()
+    Y = hhg_gauss_gauss(int(hhg_gauss_gauss.t_final / hhg_gauss_gauss.dt))
     plt.plot(hhg_gauss_gauss.t, Y)
     plt.xlabel("time, $t$")
 
